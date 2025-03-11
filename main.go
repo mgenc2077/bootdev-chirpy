@@ -22,19 +22,19 @@ func main() {
 	asd := &apiconfig{}
 	mux.Handle("/app/", asd.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.Handle("/assets/", http.FileServer(http.Dir(".")))
-	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		hitcount := asd.fileserverHits.Load()
 		w.Write([]byte(fmt.Sprintf("Hits: %v", hitcount)))
 	})
-	mux.HandleFunc("POST /reset", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/reset", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		asd.fileserverHits.Store(0)
 		w.Write([]byte(fmt.Sprintf("Hits: %v", asd.fileserverHits.Load())))
 	})
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
