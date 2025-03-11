@@ -22,13 +22,18 @@ func main() {
 	asd := &apiconfig{}
 	mux.Handle("/app/", asd.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.Handle("/assets/", http.FileServer(http.Dir(".")))
-	mux.HandleFunc("GET /api/metrics", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 		w.WriteHeader(http.StatusOK)
 		hitcount := asd.fileserverHits.Load()
-		w.Write([]byte(fmt.Sprintf("Hits: %v", hitcount)))
+		w.Write([]byte(fmt.Sprintf(`<html>
+  										<body>
+    										<h1>Welcome, Chirpy Admin</h1>
+    										<p>Chirpy has been visited %d times!</p>
+  										</body>
+									</html>`, hitcount)))
 	})
-	mux.HandleFunc("POST /api/reset", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		asd.fileserverHits.Store(0)
