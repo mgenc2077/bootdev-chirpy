@@ -8,15 +8,18 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/mgenc2077/bootdev-chirpy/internal/database"
 )
 
-type apiconfig struct {
+type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
+	platform       string
 }
 type errordata struct {
 	Error string `json:"error"`
@@ -27,8 +30,17 @@ type jsondata struct {
 type jsonresponse struct {
 	Cleaned_body string `json:"cleaned_body"`
 }
+type emailquery struct {
+	Email string `json:"email"`
+}
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
 
-func (cfg *apiconfig) middlewareMetricsInc(next http.Handler) http.Handler {
+func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg.fileserverHits.Add(1)
 		next.ServeHTTP(w, r)
@@ -72,13 +84,13 @@ func main() {
 		return
 	}
 	mux := http.NewServeMux()
-	asd := &apiconfig{dbQueries: database.New(db)}
-	mux.Handle("/app/", asd.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
+	apiconfig := &apiConfig{dbQueries: database.New(db), platform: os.Getenv("PLATFORM")}
+	mux.Handle("/app/", apiconfig.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.Handle("/assets/", http.FileServer(http.Dir(".")))
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 		w.WriteHeader(http.StatusOK)
-		hitcount := asd.fileserverHits.Load()
+		hitcount := apiconfig.fileserverHits.Load()
 		w.Write([]byte(fmt.Sprintf(`<html>
   										<body>
     										<h1>Welcome, Chirpy Admin</h1>
@@ -88,9 +100,15 @@ func main() {
 	})
 	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		asd.fileserverHits.Store(0)
-		w.Write([]byte(fmt.Sprintf("Hits: %v", asd.fileserverHits.Load())))
+		if apiconfig.platform == "dev" {
+			apiconfig.dbQueries.ResetTable(r.Context())
+			w.WriteHeader(http.StatusOK)
+			apiconfig.fileserverHits.Store(0)
+			w.Write([]byte(fmt.Sprintf("Hits: %v", apiconfig.fileserverHits.Load())))
+		} else {
+			w.WriteHeader(403)
+			w.Write([]byte("forbidden"))
+		}
 	})
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -111,6 +129,20 @@ func main() {
 		if check == 0 {
 			returnwithvalues(w, 200, params)
 		}
+	})
+	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		params := emailquery{}
+		err := decoder.Decode(&params)
+		if err != nil {
+			_ = returnwitherror(w, 500, "Something went wrong")
+		}
+		user, _ := apiconfig.dbQueries.CreateUser(r.Context(), params.Email)
+		userstruct := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email}
+		userjson, _ := json.Marshal(userstruct)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		w.Write(userjson)
 	})
 	server := http.Server{
 		Addr:    ":8080",
