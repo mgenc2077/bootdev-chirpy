@@ -1,15 +1,22 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+	"github.com/mgenc2077/bootdev-chirpy/internal/database"
 )
 
 type apiconfig struct {
 	fileserverHits atomic.Int32
+	dbQueries      *database.Queries
 }
 type errordata struct {
 	Error string `json:"error"`
@@ -58,8 +65,14 @@ func returnwithvalues(w http.ResponseWriter, code int, bodydata jsondata) {
 }
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return
+	}
 	mux := http.NewServeMux()
-	asd := &apiconfig{}
+	asd := &apiconfig{dbQueries: database.New(db)}
 	mux.Handle("/app/", asd.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.Handle("/assets/", http.FileServer(http.Dir(".")))
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
