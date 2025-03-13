@@ -24,12 +24,6 @@ type apiConfig struct {
 type errordata struct {
 	Error string `json:"error"`
 }
-type jsondata struct {
-	Body string `json:"body"`
-}
-type jsonresponse struct {
-	Cleaned_body string `json:"cleaned_body"`
-}
 type emailquery struct {
 	Email string `json:"email"`
 }
@@ -39,6 +33,17 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
 }
+type chirpsInput struct {
+	Body   string    `json:"body"`
+	UserID uuid.UUID `json:"user_id"`
+}
+type chirpsOutput struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +51,8 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+var apiconfig *apiConfig
 
 func returnwitherror(w http.ResponseWriter, code int, msg string) int {
 	w.Header().Set("Content-Type", "application/json")
@@ -57,7 +64,7 @@ func returnwitherror(w http.ResponseWriter, code int, msg string) int {
 	return check
 }
 
-func returnwithvalues(w http.ResponseWriter, code int, bodydata jsondata) {
+func createChirp(w http.ResponseWriter, code int, bodydata chirpsInput, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	arr := strings.Split(bodydata.Body, " ")
 	var arres []string
@@ -70,8 +77,15 @@ func returnwithvalues(w http.ResponseWriter, code int, bodydata jsondata) {
 		arres = append(arres, v)
 	}
 	rspstring := strings.Join(arres, " ")
-	response := jsonresponse{Cleaned_body: rspstring}
-	rspjson, _ := json.Marshal(response)
+	chirp, err := apiconfig.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{Body: rspstring, UserID: bodydata.UserID})
+	if err != nil {
+		returnwitherror(w, 500, "Could not create Chirp")
+	}
+	chirpresp := chirpsOutput{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID}
+	rspjson, err := json.Marshal(chirpresp)
+	if err != nil {
+		returnwitherror(w, 500, "Could not marshall chirpresp")
+	}
 	w.WriteHeader(code)
 	w.Write(rspjson)
 }
@@ -84,7 +98,7 @@ func main() {
 		return
 	}
 	mux := http.NewServeMux()
-	apiconfig := &apiConfig{dbQueries: database.New(db), platform: os.Getenv("PLATFORM")}
+	apiconfig = &apiConfig{dbQueries: database.New(db), platform: os.Getenv("PLATFORM")}
 	mux.Handle("/app/", apiconfig.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.Handle("/assets/", http.FileServer(http.Dir(".")))
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +121,6 @@ func main() {
 			w.Write([]byte(fmt.Sprintf("Hits: %v", apiconfig.fileserverHits.Load())))
 		} else {
 			w.WriteHeader(403)
-			w.Write([]byte("forbidden"))
 		}
 	})
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -115,9 +128,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
-	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
-		params := jsondata{}
+		params := chirpsInput{}
 		var check = 0
 		err := decoder.Decode(&params)
 		if err != nil {
@@ -127,19 +140,25 @@ func main() {
 			check = returnwitherror(w, 400, "Chirp is too long")
 		}
 		if check == 0 {
-			returnwithvalues(w, 200, params)
+			createChirp(w, 201, params, r)
 		}
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
-		params := emailquery{}
-		err := decoder.Decode(&params)
+		params1 := emailquery{}
+		err := decoder.Decode(&params1)
 		if err != nil {
 			_ = returnwitherror(w, 500, "Something went wrong")
 		}
-		user, _ := apiconfig.dbQueries.CreateUser(r.Context(), params.Email)
+		user, err := apiconfig.dbQueries.CreateUser(r.Context(), params1.Email)
+		if err != nil {
+			returnwitherror(w, 500, "Could not create User")
+		}
 		userstruct := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email}
-		userjson, _ := json.Marshal(userstruct)
+		userjson, err := json.Marshal(userstruct)
+		if err != nil {
+			returnwitherror(w, 500, "Could not marshall userstruct")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		w.Write(userjson)
