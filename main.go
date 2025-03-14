@@ -184,6 +184,24 @@ func main() {
 		w.WriteHeader(201)
 		w.Write(userjson)
 	})
+	mux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
+		chirpidstring := r.PathValue("chirpID")
+		chirpid, err := uuid.Parse(chirpidstring)
+		if err != nil {
+			returnwitherror(w, 400, "Invalid ChirpID")
+		}
+		chirp, err := apiconfig.dbQueries.GetChirp(r.Context(), chirpid)
+		if err != nil {
+			returnwitherror(w, 500, "Could not get chirps")
+		}
+		chirpstruct := chirpsOutput{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID}
+		chirpjson, err := json.Marshal(chirpstruct)
+		if err != nil {
+			returnwitherror(w, 500, "Could not marshall chirp")
+		}
+		w.WriteHeader(200)
+		w.Write(chirpjson)
+	})
 	server := http.Server{
 		Addr:    ":8080",
 		Handler: mux,
