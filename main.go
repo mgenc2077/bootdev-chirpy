@@ -90,6 +90,24 @@ func createChirp(w http.ResponseWriter, code int, bodydata chirpsInput, r *http.
 	w.Write(rspjson)
 }
 
+func getchirps(w http.ResponseWriter, code int, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	arr := []chirpsOutput{}
+	chirps, err := apiconfig.dbQueries.GetChirps(r.Context())
+	if err != nil {
+		returnwitherror(w, 500, "Could not get chirps")
+	}
+	for _, v := range chirps {
+		arr = append(arr, chirpsOutput{ID: v.ID, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Body: v.Body, UserID: v.UserID})
+	}
+	arrjson, err := json.Marshal(arr)
+	if err != nil {
+		returnwitherror(w, 500, "Could Not Marshall Chirps")
+	}
+	w.WriteHeader(code)
+	w.Write(arrjson)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -142,6 +160,9 @@ func main() {
 		if check == 0 {
 			createChirp(w, 201, params, r)
 		}
+	})
+	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		getchirps(w, 200, r)
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
