@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/mgenc2077/bootdev-chirpy/internal/auth"
 	"github.com/mgenc2077/bootdev-chirpy/internal/database"
 )
 
@@ -25,7 +26,8 @@ type errordata struct {
 	Error string `json:"error"`
 }
 type emailquery struct {
-	Email string `json:"email"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 type User struct {
 	ID        uuid.UUID `json:"id"`
@@ -108,6 +110,18 @@ func getchirps(w http.ResponseWriter, code int, r *http.Request) {
 	w.Write(arrjson)
 }
 
+func returnUser(w http.ResponseWriter, code int, userquery database.User) {
+	userstruct := User{ID: userquery.ID, CreatedAt: userquery.CreatedAt, UpdatedAt: userquery.UpdatedAt, Email: userquery.Email}
+	userjson, err := json.Marshal(userstruct)
+	if err != nil {
+		returnwitherror(w, 500, "Could not marshall userstruct")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(userjson)
+}
+
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
@@ -169,20 +183,33 @@ func main() {
 		params1 := emailquery{}
 		err := decoder.Decode(&params1)
 		if err != nil {
-			_ = returnwitherror(w, 500, "Something went wrong")
+			returnwitherror(w, 500, "Something went wrong")
+			return
 		}
-		user, err := apiconfig.dbQueries.CreateUser(r.Context(), params1.Email)
+		hashed_password, err := auth.HashPassword(params1.Password)
+		if err != nil {
+			returnwitherror(w, 400, "Password Cant Be Hashed")
+			return
+		}
+		user, err := apiconfig.dbQueries.CreateUser(r.Context(), database.CreateUserParams{Email: params1.Email, HashedPassword: hashed_password})
 		if err != nil {
 			returnwitherror(w, 500, "Could not create User")
+			return
 		}
-		userstruct := User{ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email}
-		userjson, err := json.Marshal(userstruct)
+		returnUser(w, 201, user)
+	})
+	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		params1 := emailquery{}
+		err := decoder.Decode(&params1)
 		if err != nil {
-			returnwitherror(w, 500, "Could not marshall userstruct")
+			returnwitherror(w, 500, "Something went wrong")
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(201)
-		w.Write(userjson)
+		user, err := apiconfig.dbQueries.UserByEmail(r.Context(), params1.Email)
+		if (err != nil) || (auth.CheckPasswordHash(params1.Password, user.HashedPassword) != nil) {
+			returnwitherror(w, 401, "Incorrect email or password")
+		}
+		returnUser(w, 200, user)
 	})
 	mux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
 		chirpidstring := r.PathValue("chirpID")
