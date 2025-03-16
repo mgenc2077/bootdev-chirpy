@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -58,5 +59,20 @@ func TestValidateJWT(t *testing.T) {
 	_, err = ValidateJWT(diffTknStr, secret)
 	if err == nil {
 		t.Error("Expected wrong secret but got no error")
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	headers := http.Header{
+		"Authorization": {"Bearer TOKEN_STRING"},
+		"Content-Type":  {"application/json"},
+	}
+
+	token, err := GetBearerToken(headers)
+	if err != nil {
+		t.Fatalf("Could not find token error: %v", err)
+	}
+	if token != "TOKEN_STRING" {
+		t.Errorf("Expected TOKEN_STRING got: %v", token)
 	}
 }

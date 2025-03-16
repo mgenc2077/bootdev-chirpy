@@ -21,19 +21,22 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platform       string
+	jwt_Secret     string
 }
 type errordata struct {
 	Error string `json:"error"`
 }
 type emailquery struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email              string `json:"email"`
+	Password           string `json:"password"`
+	Expires_in_seconds int    `json:"expires_in_seconds,omitempty"`
 }
 type User struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     *string   `json:"token,omitempty"`
 }
 type chirpsInput struct {
 	Body   string    `json:"body"`
@@ -110,8 +113,18 @@ func getchirps(w http.ResponseWriter, code int, r *http.Request) {
 	w.Write(arrjson)
 }
 
-func returnUser(w http.ResponseWriter, code int, userquery database.User) {
-	userstruct := User{ID: userquery.ID, CreatedAt: userquery.CreatedAt, UpdatedAt: userquery.UpdatedAt, Email: userquery.Email}
+func returnUser(w http.ResponseWriter, code int, userquery database.User, expires_in ...time.Duration) {
+	expiry := 3600 * time.Second
+	if len(expires_in) > 0 && expires_in[0] < time.Hour {
+		expiry = expires_in[0]
+	}
+
+	token, err := auth.MakeJWT(userquery.ID, apiconfig.jwt_Secret, expiry)
+	if err != nil {
+		returnwitherror(w, 500, "Could not make jwt")
+		return
+	}
+	userstruct := User{ID: userquery.ID, CreatedAt: userquery.CreatedAt, UpdatedAt: userquery.UpdatedAt, Email: userquery.Email, Token: &token}
 	userjson, err := json.Marshal(userstruct)
 	if err != nil {
 		returnwitherror(w, 500, "Could not marshall userstruct")
@@ -130,7 +143,7 @@ func main() {
 		return
 	}
 	mux := http.NewServeMux()
-	apiconfig = &apiConfig{dbQueries: database.New(db), platform: os.Getenv("PLATFORM")}
+	apiconfig = &apiConfig{dbQueries: database.New(db), platform: os.Getenv("PLATFORM"), jwt_Secret: os.Getenv("jwt_Secret")}
 	mux.Handle("/app/", apiconfig.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.Handle("/assets/", http.FileServer(http.Dir(".")))
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -162,14 +175,23 @@ func main() {
 	})
 	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			returnwitherror(w, 400, "Could Not Find Token")
+		}
 		params := chirpsInput{}
 		var check = 0
-		err := decoder.Decode(&params)
-		if err != nil {
+		decoderr := decoder.Decode(&params)
+		if decoderr != nil {
 			check = returnwitherror(w, 500, "Something went wrong")
 		}
 		if len(params.Body) > 140 {
 			check = returnwitherror(w, 400, "Chirp is too long")
+		}
+		jwt_userid, err := auth.ValidateJWT(token, apiconfig.jwt_Secret)
+		params.UserID = jwt_userid
+		if err != nil {
+			check = returnwitherror(w, 401, "Jwt could not be validated")
 		}
 		if check == 0 {
 			createChirp(w, 201, params, r)

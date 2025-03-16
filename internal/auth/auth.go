@@ -2,9 +2,11 @@ package auth
 
 import (
 	"errors"
+	"net/http"
+	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -49,4 +51,13 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 	return userid, nil
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	tokenraw := headers.Get("Authorization")
+	if tokenraw == "" {
+		return "", errors.New("token doesnt exist")
+	}
+	tokenArr := strings.Split(tokenraw, " ")
+	return tokenArr[1], nil
 }
