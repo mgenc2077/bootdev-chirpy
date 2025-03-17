@@ -3,7 +3,6 @@ package auth
 import (
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -11,8 +10,7 @@ import (
 func TestMakeJWT(t *testing.T) {
 	userID := uuid.New()
 	secret := "chirpy"
-	expiresIn := time.Hour
-	tokenStr, err := MakeJWT(userID, secret, expiresIn)
+	tokenStr, err := MakeJWT(userID, secret)
 	if err != nil {
 		t.Fatalf("MakeJWT returned an error: %v", err)
 	}
@@ -25,10 +23,9 @@ func TestMakeJWT(t *testing.T) {
 func TestValidateJWT(t *testing.T) {
 	userID := uuid.New()
 	secret := "chirpy"
-	expiresIn := time.Hour
 
 	// Testing accuracy
-	tokenStr, err := MakeJWT(userID, secret, expiresIn)
+	tokenStr, err := MakeJWT(userID, secret)
 	if err != nil {
 		t.Fatalf("MakeJWT returned an error: %v", err)
 	}
@@ -40,19 +37,9 @@ func TestValidateJWT(t *testing.T) {
 		t.Errorf("Expected %v got %v", userID, jwtUserid)
 	}
 
-	// Testing Expired Token
-	expiredTknStr, err := MakeJWT(userID, secret, -time.Hour)
-	if err != nil {
-		t.Fatalf("MakeJWT (expired token) returned an error: %v", err)
-	}
-	_, err = ValidateJWT(expiredTknStr, secret)
-	if err == nil {
-		t.Error("Expected expired token but got no error")
-	}
-
 	// Testing Wrong Secret
 	diffSecret := "wrong"
-	diffTknStr, err := MakeJWT(userID, diffSecret, time.Hour)
+	diffTknStr, err := MakeJWT(userID, diffSecret)
 	if err != nil {
 		t.Fatalf("MakeJWT (different secret) returned an error: %v", err)
 	}
@@ -74,5 +61,12 @@ func TestGetBearerToken(t *testing.T) {
 	}
 	if token != "TOKEN_STRING" {
 		t.Errorf("Expected TOKEN_STRING got: %v", token)
+	}
+}
+
+func TestMakeRefreshToken(t *testing.T) {
+	asd, err := MakeRefreshToken()
+	if (err != nil) || (len(asd) != 64) {
+		t.Errorf("Returned %v", asd)
 	}
 }
