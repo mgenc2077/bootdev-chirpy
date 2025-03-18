@@ -27,9 +27,8 @@ type errordata struct {
 	Error string `json:"error"`
 }
 type emailquery struct {
-	Email              string `json:"email"`
-	Password           string `json:"password"`
-	Expires_in_seconds int    `json:"expires_in_seconds,omitempty"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 type User struct {
 	ID            uuid.UUID `json:"id"`
@@ -294,6 +293,44 @@ func main() {
 			returnwitherror(w, 500, "Could not Revoke Token")
 		}
 		w.WriteHeader(204)
+	})
+	mux.HandleFunc("PUT /api/users", func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			returnwitherror(w, 401, "No token Provided")
+			return
+		}
+		params := emailquery{}
+		err = decoder.Decode(&params)
+		if err != nil {
+			returnwitherror(w, 400, "could not decode body")
+			return
+		}
+		tokenID, err := auth.ValidateJWT(token, apiconfig.jwt_Secret)
+		if err != nil {
+			returnwitherror(w, 401, "There is a problem with your token")
+			return
+		}
+		hashedpsw, err := auth.HashPassword(params.Password)
+		if err != nil {
+			returnwitherror(w, 500, "could not hash password")
+			return
+		}
+		qres, err := apiconfig.dbQueries.ChangePassword(r.Context(), database.ChangePasswordParams{HashedPassword: hashedpsw, ID: tokenID})
+		if err != nil {
+			returnwitherror(w, 500, "password change failed")
+			return
+		}
+		_ = qres
+		params.Password = hashedpsw
+		paramsjson, err := json.Marshal(params)
+		if err != nil {
+			returnwitherror(w, 500, "could not marshall return parameters")
+			return
+		}
+		w.WriteHeader(200)
+		w.Write(paramsjson)
 	})
 	server := http.Server{
 		Addr:    ":8080",
