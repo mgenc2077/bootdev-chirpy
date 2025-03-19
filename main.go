@@ -88,11 +88,13 @@ func createChirp(w http.ResponseWriter, code int, bodydata chirpsInput, r *http.
 	chirp, err := apiconfig.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{Body: rspstring, UserID: bodydata.UserID})
 	if err != nil {
 		returnwitherror(w, 500, "Could not create Chirp")
+		return
 	}
 	chirpresp := chirpsOutput{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID}
 	rspjson, err := json.Marshal(chirpresp)
 	if err != nil {
 		returnwitherror(w, 500, "Could not marshall chirpresp")
+		return
 	}
 	w.WriteHeader(code)
 	w.Write(rspjson)
@@ -104,6 +106,7 @@ func getchirps(w http.ResponseWriter, code int, r *http.Request) {
 	chirps, err := apiconfig.dbQueries.GetChirps(r.Context())
 	if err != nil {
 		returnwitherror(w, 500, "Could not get chirps")
+		return
 	}
 	for _, v := range chirps {
 		arr = append(arr, chirpsOutput{ID: v.ID, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Body: v.Body, UserID: v.UserID})
@@ -111,6 +114,7 @@ func getchirps(w http.ResponseWriter, code int, r *http.Request) {
 	arrjson, err := json.Marshal(arr)
 	if err != nil {
 		returnwitherror(w, 500, "Could Not Marshall Chirps")
+		return
 	}
 	w.WriteHeader(code)
 	w.Write(arrjson)
@@ -125,6 +129,7 @@ func returnUser(w http.ResponseWriter, code int, userquery database.User, r *htt
 	refreshToken, err := auth.MakeRefreshToken()
 	if err != nil {
 		returnwitherror(w, 500, "Could not make refresh token")
+		return
 	}
 	userstruct := User{ID: userquery.ID, CreatedAt: userquery.CreatedAt, UpdatedAt: userquery.UpdatedAt, Email: userquery.Email, Token: &token, Refresh_token: &refreshToken}
 	_, err = apiconfig.dbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{Token: *userstruct.Refresh_token, UserID: userstruct.ID})
@@ -185,6 +190,7 @@ func main() {
 		token, err := auth.GetBearerToken(r.Header)
 		if err != nil {
 			returnwitherror(w, 400, "Could Not Find Token")
+			return
 		}
 		params := chirpsInput{}
 		var check = 0
@@ -247,15 +253,18 @@ func main() {
 		chirpid, err := uuid.Parse(chirpidstring)
 		if err != nil {
 			returnwitherror(w, 400, "Invalid ChirpID")
+			return
 		}
 		chirp, err := apiconfig.dbQueries.GetChirp(r.Context(), chirpid)
 		if err != nil {
-			returnwitherror(w, 500, "Could not get chirps")
+			returnwitherror(w, 404, "Could not get chirps")
+			return
 		}
 		chirpstruct := chirpsOutput{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID}
 		chirpjson, err := json.Marshal(chirpstruct)
 		if err != nil {
 			returnwitherror(w, 500, "Could not marshall chirp")
+			return
 		}
 		w.WriteHeader(200)
 		w.Write(chirpjson)
@@ -264,6 +273,7 @@ func main() {
 		token, err := auth.GetBearerToken(r.Header)
 		if err != nil {
 			returnwitherror(w, 400, "No Token Provided")
+			return
 		}
 		tokenquery, err := apiconfig.dbQueries.QueryRefreshToken(r.Context(), token)
 		if err != nil {
@@ -273,11 +283,13 @@ func main() {
 		acctoken, err := auth.MakeJWT(tokenquery.UserID, apiconfig.jwt_Secret)
 		if err != nil {
 			returnwitherror(w, 500, "Could not make jwt")
+			return
 		}
 		accstruct := tokenstruct{Token: acctoken}
 		accjson, err := json.Marshal(accstruct)
 		if err != nil {
 			returnwitherror(w, 500, "Could not marshall json")
+			return
 		}
 		w.WriteHeader(200)
 		w.Write(accjson)
@@ -287,10 +299,12 @@ func main() {
 		token, err := auth.GetBearerToken(r.Header)
 		if err != nil {
 			returnwitherror(w, 400, "No Token Provided")
+			return
 		}
 		_, err = apiconfig.dbQueries.RevokeRefreshToken(r.Context(), token)
 		if err != nil {
 			returnwitherror(w, 500, "Could not Revoke Token")
+			return
 		}
 		w.WriteHeader(204)
 	})
@@ -331,6 +345,39 @@ func main() {
 		}
 		w.WriteHeader(200)
 		w.Write(paramsjson)
+	})
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			returnwitherror(w, 401, "No token Provided")
+			return
+		}
+		chirpidstring := r.PathValue("chirpID")
+		chirpid, err := uuid.Parse(chirpidstring)
+		if err != nil {
+			returnwitherror(w, 400, "Invalid ChirpID")
+			return
+		}
+		chirp, err := apiconfig.dbQueries.GetChirp(r.Context(), chirpid)
+		if err != nil {
+			returnwitherror(w, 404, "Could not get chirps")
+			return
+		}
+		chirpstruct := chirpsOutput{ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.UpdatedAt, Body: chirp.Body, UserID: chirp.UserID}
+		tokenid, err := auth.ValidateJWT(token, apiconfig.jwt_Secret)
+		if err != nil {
+			returnwitherror(w, 400, "Token could not be verified")
+			return
+		}
+		if chirpstruct.UserID == tokenid {
+			err = apiconfig.dbQueries.DeleteChirp(r.Context(), chirpstruct.ID)
+			if err != nil {
+				returnwitherror(w, 500, "Could not delete chirp")
+				return
+			}
+			w.WriteHeader(204)
+		}
+		w.WriteHeader(403)
 	})
 	server := http.Server{
 		Addr:    ":8080",

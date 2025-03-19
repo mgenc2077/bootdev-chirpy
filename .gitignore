@@ -2,3 +2,4 @@ out
 notes.txt
 .env
 bootdev-chirpy
+__debug_*
