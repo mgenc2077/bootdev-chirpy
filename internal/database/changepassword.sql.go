@@ -15,7 +15,7 @@ const changePassword = `-- name: ChangePassword :one
 UPDATE users
 SET hashed_password=$1
 WHERE id=$2
-RETURNING id, created_at, updated_at, email, hashed_password
+RETURNING id, created_at, updated_at, email, hashed_password, is_chirpy_red
 `
 
 type ChangePasswordParams struct {
@@ -32,6 +32,7 @@ func (q *Queries) ChangePassword(ctx context.Context, arg ChangePasswordParams) 
 		&i.UpdatedAt,
 		&i.Email,
 		&i.HashedPassword,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }

@@ -37,6 +37,7 @@ type User struct {
 	Email         string    `json:"email"`
 	Token         *string   `json:"token,omitempty"`
 	Refresh_token *string   `json:"refresh_token,omitempty"`
+	Is_chirpy_red bool      `json:"is_chirpy_red"`
 }
 type chirpsInput struct {
 	Body   string    `json:"body"`
@@ -51,6 +52,12 @@ type chirpsOutput struct {
 }
 type tokenstruct struct {
 	Token string `json:"token"`
+}
+type polkaInput struct {
+	Event string `json:"event"`
+	Data  struct {
+		UserID uuid.UUID `json:"user_id"`
+	} `json:"data"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -131,7 +138,7 @@ func returnUser(w http.ResponseWriter, code int, userquery database.User, r *htt
 		returnwitherror(w, 500, "Could not make refresh token")
 		return
 	}
-	userstruct := User{ID: userquery.ID, CreatedAt: userquery.CreatedAt, UpdatedAt: userquery.UpdatedAt, Email: userquery.Email, Token: &token, Refresh_token: &refreshToken}
+	userstruct := User{ID: userquery.ID, CreatedAt: userquery.CreatedAt, UpdatedAt: userquery.UpdatedAt, Email: userquery.Email, Token: &token, Refresh_token: &refreshToken, Is_chirpy_red: userquery.IsChirpyRed}
 	_, err = apiconfig.dbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{Token: *userstruct.Refresh_token, UserID: userstruct.ID})
 	if err != nil {
 		returnwitherror(w, 500, "Could not save refresh token")
@@ -378,6 +385,26 @@ func main() {
 			w.WriteHeader(204)
 		}
 		w.WriteHeader(403)
+	})
+	mux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		params := polkaInput{}
+		err = decoder.Decode(&params)
+		if err != nil {
+			returnwitherror(w, 400, "could not decode body")
+			return
+		}
+		if params.Event != "user.upgraded" {
+			w.WriteHeader(204)
+			return
+		}
+		qresult, err := apiconfig.dbQueries.UpgradeUser(r.Context(), params.Data.UserID)
+		if err != nil {
+			returnwitherror(w, 404, "Could not find user")
+			return
+		}
+		_ = qresult
+		w.WriteHeader(204)
 	})
 	server := http.Server{
 		Addr:    ":8080",
