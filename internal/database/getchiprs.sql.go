@@ -11,6 +11,7 @@ import (
 
 const getChirps = `-- name: GetChirps :many
 Select id, created_at, updated_at, body, user_id from chirps
+ORDER BY created_at
 `
 
 func (q *Queries) GetChirps(ctx context.Context) ([]Chirp, error) {

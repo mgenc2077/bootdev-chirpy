@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -108,16 +109,17 @@ func createChirp(w http.ResponseWriter, code int, bodydata chirpsInput, r *http.
 	w.Write(rspjson)
 }
 
-func getchirps(w http.ResponseWriter, code int, r *http.Request, s string) {
+func getchirps(w http.ResponseWriter, code int, r *http.Request, authorID string, sortvalue string) {
 	w.Header().Set("Content-Type", "application/json")
-	suuid, err := uuid.Parse(s)
-	if err != nil {
-		returnwitherror(w, 400, "Could not find UserID")
-		return
-	}
 	arr := []chirpsOutput{}
 	var chirps []database.Chirp
-	if s != "" {
+	var err error
+	if authorID != "" {
+		suuid, err := uuid.Parse(authorID)
+		if err != nil {
+			returnwitherror(w, 400, "Could not find UserID")
+			return
+		}
 		chirps, err = apiconfig.dbQueries.GetChirpsByAuthor(r.Context(), suuid)
 		if err != nil {
 			returnwitherror(w, 500, "Could not get chirps")
@@ -133,6 +135,21 @@ func getchirps(w http.ResponseWriter, code int, r *http.Request, s string) {
 	for _, v := range chirps {
 		arr = append(arr, chirpsOutput{ID: v.ID, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Body: v.Body, UserID: v.UserID})
 	}
+
+	var ascending bool
+	if sortvalue == "ASC" {
+		ascending = true
+	} else {
+		ascending = false
+	}
+
+	sort.SliceStable(arr, func(i, j int) bool {
+		if ascending {
+			return arr[i].CreatedAt.Before(arr[j].CreatedAt)
+		}
+		return arr[i].CreatedAt.After(arr[j].CreatedAt)
+	})
+
 	arrjson, err := json.Marshal(arr)
 	if err != nil {
 		returnwitherror(w, 500, "Could Not Marshall Chirps")
@@ -233,8 +250,14 @@ func main() {
 		}
 	})
 	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
-		s := r.URL.Query().Get("author_id")
-		getchirps(w, 200, r, s)
+		authorID := r.URL.Query().Get("author_id")
+		sort := r.URL.Query().Get("sort")
+		if (sort == "") || (sort == "asc") {
+			sort = "ASC"
+		} else {
+			sort = "DESC"
+		}
+		getchirps(w, 200, r, authorID, sort)
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)

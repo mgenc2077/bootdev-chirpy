@@ -1,2 +1,3 @@
 -- name: GetChirps :many
-Select * from chirps;
+Select * from chirps
+ORDER BY created_at;
