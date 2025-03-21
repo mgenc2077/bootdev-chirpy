@@ -22,6 +22,7 @@ type apiConfig struct {
 	dbQueries      *database.Queries
 	platform       string
 	jwt_Secret     string
+	polka_key      string
 }
 type errordata struct {
 	Error string `json:"error"`
@@ -107,13 +108,27 @@ func createChirp(w http.ResponseWriter, code int, bodydata chirpsInput, r *http.
 	w.Write(rspjson)
 }
 
-func getchirps(w http.ResponseWriter, code int, r *http.Request) {
+func getchirps(w http.ResponseWriter, code int, r *http.Request, s string) {
 	w.Header().Set("Content-Type", "application/json")
-	arr := []chirpsOutput{}
-	chirps, err := apiconfig.dbQueries.GetChirps(r.Context())
+	suuid, err := uuid.Parse(s)
 	if err != nil {
-		returnwitherror(w, 500, "Could not get chirps")
+		returnwitherror(w, 400, "Could not find UserID")
 		return
+	}
+	arr := []chirpsOutput{}
+	var chirps []database.Chirp
+	if s != "" {
+		chirps, err = apiconfig.dbQueries.GetChirpsByAuthor(r.Context(), suuid)
+		if err != nil {
+			returnwitherror(w, 500, "Could not get chirps")
+			return
+		}
+	} else {
+		chirps, err = apiconfig.dbQueries.GetChirps(r.Context())
+		if err != nil {
+			returnwitherror(w, 500, "Could not get chirps")
+			return
+		}
 	}
 	for _, v := range chirps {
 		arr = append(arr, chirpsOutput{ID: v.ID, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Body: v.Body, UserID: v.UserID})
@@ -162,7 +177,7 @@ func main() {
 		return
 	}
 	mux := http.NewServeMux()
-	apiconfig = &apiConfig{dbQueries: database.New(db), platform: os.Getenv("PLATFORM"), jwt_Secret: os.Getenv("jwt_Secret")}
+	apiconfig = &apiConfig{dbQueries: database.New(db), platform: os.Getenv("PLATFORM"), jwt_Secret: os.Getenv("jwt_Secret"), polka_key: os.Getenv("POLKA_KEY")}
 	mux.Handle("/app/", apiconfig.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.Handle("/assets/", http.FileServer(http.Dir(".")))
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +233,8 @@ func main() {
 		}
 	})
 	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
-		getchirps(w, 200, r)
+		s := r.URL.Query().Get("author_id")
+		getchirps(w, 200, r, s)
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
@@ -387,6 +403,11 @@ func main() {
 		w.WriteHeader(403)
 	})
 	mux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		apikey, err := auth.GetAPIKey(r.Header)
+		if (err != nil) || (apikey != apiconfig.polka_key) {
+			returnwitherror(w, 401, "Wrong API Key")
+			return
+		}
 		decoder := json.NewDecoder(r.Body)
 		params := polkaInput{}
 		err = decoder.Decode(&params)
